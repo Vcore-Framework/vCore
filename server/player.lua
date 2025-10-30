@@ -1,423 +1,323 @@
--- ┌─────────────────────────────────────────────────────────┐
--- │ vCore Player System - Unique Architecture                │
--- │ Different from QB/ESX with profession & organization     │
--- └─────────────────────────────────────────────────────────┘
-
-VCore.Players = {}
-VCore.PlayerCount = 0
-
--- ════════════════════════════════════════════════════════
--- CREATE PLAYER OBJECT
--- ════════════════════════════════════════════════════════
-
 VCore.Functions.CreatePlayer = function(source, citizenid)
-    local self = {}
     local src = source
+    local Player = {}
     
-    -- ═══ PLAYER DATA STRUCTURE (Unique to vCore) ═══
-    self.PlayerData = {
+    Player.PlayerData = {
         source = src,
-        citizenid = citizenid or VCore.Shared.GenerateId.CitizenId(),
-        identifier = VCore.Functions.GetIdentifier(src, 'license'),
-        steam = VCore.Functions.GetIdentifier(src, 'steam'),
-        discord = VCore.Functions.GetIdentifier(src, 'discord'),
-        
-        -- Identity
-        firstName = '',
-        lastName = '',
-        dob = '',
-        sex = '',
-        nationality = 'USA',
-        height = 180,
-        phone = VCore.Shared.GenerateId.PhoneNumber(),
-        
-        -- Financial
-        currencies = {},
-        bankAccount = VCore.Shared.GenerateId.BankAccount(),
-        
-        -- Profession System (Not "job")
-        profession = nil,
-        secondaryProfessions = {},
-        
-        -- Organization System (Not "gang")
-        organization = nil,
-        
-        -- Skills System (Unique RPG progression)
-        skills = {},
-        
-        -- Reputation System (Unique faction system)
-        reputation = {},
-        
-        -- Status Effects
-        status = {
+        citizenid = citizenid or VCore.Player.CreateCitizenId(),
+        license = VCore.Functions.GetIdentifier(src, 'license'),
+        name = GetPlayerName(src),
+        money = {},
+        charinfo = {},
+        job = {},
+        gang = {},
+        position = Config.DefaultSpawn,
+        metadata = {
             hunger = 100,
             thirst = 100,
             stress = 0,
-            energy = 100,
-            hygiene = 100,
+            isdead = false,
+            inlaststand = false,
+            armor = 0,
+            ishandcuffed = false,
+            tracker = false,
+            injail = 0,
+            jailitems = {},
+            status = {},
+            phone = {},
+            fitbit = {},
+            commandbinds = {},
+            bloodtype = Config.Player.Bloodtypes[math.random(1, #Config.Player.Bloodtypes)],
+            dealerrep = 0,
+            craftingrep = 0,
+            attachmentcraftingrep = 0,
+            currentapartment = nil,
+            callsign = 'NO CALLSIGN',
+            fingerprint = VCore.Player.CreateFingerId(),
+            walletid = VCore.Player.CreateWalletId(),
+            criminalrecord = {
+                hasRecord = false,
+                date = nil
+            },
+            licences = {
+                driver = true,
+                business = false,
+                weapon = false
+            },
+            inside = {
+                house = nil,
+                apartment = {
+                    apartmentType = nil,
+                    apartmentId = nil,
+                }
+            },
+            phonedata = {
+                SerialNumber = VCore.Player.CreateSerialNumber(),
+                InstalledApps = {}
+            }
         },
-        
-        -- Player State
-        isDead = false,
-        inLastStand = false,
-        isHandcuffed = false,
-        armor = 0,
-        position = Config.Spawn.DefaultCoords,
-        
-        -- Metadata
-        bloodType = VCore.Shared.BloodTypes[math.random(#VCore.Shared.BloodTypes)],
-        fingerprint = VCore.Shared.GenerateId.Fingerprint(),
-        walletId = VCore.Shared.GenerateId.WalletId(),
-        callsign = 'NONE',
-        
-        -- Licenses
-        licenses = {},
-        
-        -- Inventory
         inventory = {},
-        maxWeight = 30000,
-        
-        -- Session
-        lastSave = os.time(),
-        playTime = 0,
-        lastLogin = os.time(),
+        optin = true
     }
     
-    -- Initialize currencies
-    for currency, data in pairs(Config.Wallet.Currencies) do
-        self.PlayerData.currencies[currency] = Config.Wallet.StartingMoney[currency] or 0
+    -- Initialize money accounts
+    for _, moneyType in pairs(Config.Money.MoneyTypes) do
+        Player.PlayerData.money[moneyType] = 0
     end
     
-    -- Initialize skills
-    for skill, _ in pairs(Config.Skills.Types) do
-        self.PlayerData.skills[skill] = {level = 0, xp = 0}
-    end
+    Player.Functions = {}
     
-    -- Initialize reputation
-    for faction, _ in pairs(Config.Reputation.Factions) do
-        self.PlayerData.reputation[faction] = 0
-    end
-    
-    -- ═══ PLAYER METHODS ═══
-    self.Functions = {}
-    
-    -- Update client data
-    self.Functions.UpdatePlayerData = function()
+    Player.Functions.UpdatePlayerData = function()
         TriggerClientEvent('vCore:Client:OnPlayerLoaded', src)
-        TriggerClientEvent('vCore:Player:SetPlayerData', src, self.PlayerData)
+        TriggerClientEvent('vCore:Player:SetPlayerData', src, Player.PlayerData)
     end
     
-    -- ═══ PROFESSION MANAGEMENT ═══
-    self.Functions.SetProfession = function(professionName, level, isPrimary)
-        level = tonumber(level) or 0
+    Player.Functions.SetJob = function(job, grade)
+        local job = job
+        local grade = tostring(grade) or '0'
         
-        if not Config.Professions.Types[professionName] then
-            VCore.Error('Invalid profession:', professionName)
-            return false
-        end
+        if not Config.Jobs[job] then return false end
         
-        local professionData = Config.Professions.Types[professionName]
-        
-        if isPrimary or not self.PlayerData.profession then
-            self.PlayerData.profession = {
-                name = professionName,
-                label = professionData.label,
-                level = level,
-                rank = 'Employee', -- You can add rank system
-                salary = professionData.salary,
-                onDuty = false,
-                isBoss = false,
-                skills = professionData.skills,
-            }
-            
-            TriggerClientEvent('vCore:Client:OnProfessionUpdate', src, self.PlayerData.profession)
-        else
-            -- Add as secondary profession
-            if Config.Professions.EnableMultipleProfessions then
-                table.insert(self.PlayerData.secondaryProfessions, {
-                    name = professionName,
-                    label = professionData.label,
-                    level = level,
-                })
-            end
-        end
-        
-        self.Functions.UpdatePlayerData()
-        return true
-    end
-    
-    self.Functions.GetProfession = function()
-        return self.PlayerData.profession
-    end
-    
-    self.Functions.SetDuty = function(onDuty)
-        if not self.PlayerData.profession then return false end
-        
-        self.PlayerData.profession.onDuty = onDuty
-        TriggerClientEvent('vCore:Client:OnDutyUpdate', src, onDuty)
-        self.Functions.UpdatePlayerData()
-        return true
-    end
-    
-    -- ═══ ORGANIZATION MANAGEMENT ═══
-    self.Functions.SetOrganization = function(orgName, level, isLeader)
-        level = tonumber(level) or 0
-        
-        self.PlayerData.organization = {
-            name = orgName,
-            label = orgName,
-            level = level,
-            rank = 'Member',
-            isLeader = isLeader or false,
+        Player.PlayerData.job.name = job
+        Player.PlayerData.job.label = Config.Jobs[job].label
+        Player.PlayerData.job.payment = Config.Jobs[job].grades[grade].payment or 30
+        Player.PlayerData.job.onduty = Config.Jobs[job].defaultDuty
+        Player.PlayerData.job.isboss = Config.Jobs[job].grades[grade].isboss or false
+        Player.PlayerData.job.grade = {
+            name = Config.Jobs[job].grades[grade].name,
+            level = tonumber(grade)
         }
         
-        TriggerClientEvent('vCore:Client:OnOrganizationUpdate', src, self.PlayerData.organization)
-        self.Functions.UpdatePlayerData()
+        Player.Functions.UpdatePlayerData()
+        TriggerClientEvent('vCore:Client:OnJobUpdate', src, Player.PlayerData.job)
         return true
     end
     
-    -- ═══ CURRENCY MANAGEMENT ═══
-    self.Functions.AddCurrency = function(currency, amount, reason)
+    Player.Functions.SetGang = function(gang, grade)
+        local gang = gang
+        local grade = tostring(grade) or '0'
+        
+        if not Config.Gangs[gang] then return false end
+        
+        Player.PlayerData.gang.name = gang
+        Player.PlayerData.gang.label = Config.Gangs[gang].label
+        Player.PlayerData.gang.isboss = Config.Gangs[gang].grades[grade].isboss or false
+        Player.PlayerData.gang.grade = {
+            name = Config.Gangs[gang].grades[grade].name,
+            level = tonumber(grade)
+        }
+        
+        Player.Functions.UpdatePlayerData()
+        TriggerClientEvent('vCore:Client:OnGangUpdate', src, Player.PlayerData.gang)
+        return true
+    end
+    
+    Player.Functions.SetJobDuty = function(onDuty)
+        Player.PlayerData.job.onduty = not Player.PlayerData.job.onduty
+        TriggerClientEvent('vCore:Client:SetDuty', src, Player.PlayerData.job.onduty)
+        Player.Functions.UpdatePlayerData()
+    end
+    
+    Player.Functions.SetPlayerData = function(key, val)
+        if not key or type(key) ~= 'string' then return end
+        Player.PlayerData[key] = val
+        Player.Functions.UpdatePlayerData()
+    end
+    
+    Player.Functions.SetMetaData = function(meta, val)
+        if not meta or type(meta) ~= 'string' then return end
+        if meta == 'hunger' or meta == 'thirst' then
+            val = val > 100 and 100 or val
+        end
+        Player.PlayerData.metadata[meta] = val
+        Player.Functions.UpdatePlayerData()
+    end
+    
+    Player.Functions.AddMoney = function(moneytype, amount, reason)
         reason = reason or 'unknown'
+        moneytype = moneytype:lower()
         amount = tonumber(amount)
         
         if amount < 0 then return false end
-        if not self.PlayerData.currencies[currency] then return false end
+        if not Player.PlayerData.money[moneytype] then return false end
         
-        -- Check max cash limit
-        if currency == 'cash' and Config.Wallet.MaxCash then
-            local newAmount = self.PlayerData.currencies[currency] + amount
-            if newAmount > Config.Wallet.MaxCash then
-                VCore.Functions.Notify(src, 'You cannot carry more than $' .. Config.Wallet.MaxCash, 'error')
-                return false
+        Player.PlayerData.money[moneytype] = Player.PlayerData.money[moneytype] + amount
+        
+        Player.Functions.UpdatePlayerData()
+        
+        if amount > 100000 then
+            TriggerEvent('vCore:Server:MoneyLog', src, moneytype, amount, 'add', reason)
+        end
+        
+        return true
+    end
+    
+    Player.Functions.RemoveMoney = function(moneytype, amount, reason)
+        reason = reason or 'unknown'
+        moneytype = moneytype:lower()
+        amount = tonumber(amount)
+        
+        if amount < 0 then return false end
+        if not Player.PlayerData.money[moneytype] then return false end
+        
+        for _, mtype in pairs(Config.Money.DontAllowMinus) do
+            if mtype == moneytype then
+                if (Player.PlayerData.money[moneytype] - amount) < 0 then
+                    return false
+                end
             end
         end
         
-        self.PlayerData.currencies[currency] = self.PlayerData.currencies[currency] + amount
-        self.Functions.UpdatePlayerData()
+        Player.PlayerData.money[moneytype] = Player.PlayerData.money[moneytype] - amount
         
-        TriggerEvent('vCore:Server:MoneyLog', src, currency, amount, 'add', reason)
+        Player.Functions.UpdatePlayerData()
+        
+        if amount > 100000 then
+            TriggerEvent('vCore:Server:MoneyLog', src, moneytype, amount, 'remove', reason)
+        end
+        
         return true
     end
     
-    self.Functions.RemoveCurrency = function(currency, amount, reason)
+    Player.Functions.SetMoney = function(moneytype, amount, reason)
         reason = reason or 'unknown'
+        moneytype = moneytype:lower()
         amount = tonumber(amount)
         
         if amount < 0 then return false end
-        if not self.PlayerData.currencies[currency] then return false end
+        if not Player.PlayerData.money[moneytype] then return false end
         
-        local currencyData = Config.Wallet.Currencies[currency]
+        Player.PlayerData.money[moneytype] = amount
         
-        -- Check if currency can go negative
-        if currencyData and not currencyData.canDrop then
-            if (self.PlayerData.currencies[currency] - amount) < 0 then
-                return false
-            end
-        end
-        
-        self.PlayerData.currencies[currency] = self.PlayerData.currencies[currency] - amount
-        self.Functions.UpdatePlayerData()
-        
-        TriggerEvent('vCore:Server:MoneyLog', src, currency, amount, 'remove', reason)
+        Player.Functions.UpdatePlayerData()
         return true
     end
     
-    self.Functions.SetCurrency = function(currency, amount, reason)
-        reason = reason or 'unknown'
-        amount = tonumber(amount)
-        
-        if amount < 0 then return false end
-        if not self.PlayerData.currencies[currency] then return false end
-        
-        self.PlayerData.currencies[currency] = amount
-        self.Functions.UpdatePlayerData()
-        return true
+    Player.Functions.GetMoney = function(moneytype)
+        if not moneytype then return false end
+        moneytype = moneytype:lower()
+        return Player.PlayerData.money[moneytype]
     end
     
-    self.Functions.GetCurrency = function(currency)
-        if not currency then return nil end
-        return self.PlayerData.currencies[currency] or 0
-    end
-    
-    self.Functions.GetAllCurrencies = function()
-        return self.PlayerData.currencies
-    end
-    
-    -- ═══ SKILL SYSTEM ═══
-    self.Functions.AddSkillXP = function(skill, xp)
-        if not self.PlayerData.skills[skill] then return false end
-        
-        xp = xp * (Config.Skills.ExperienceMultiplier or 1.0)
-        self.PlayerData.skills[skill].xp = self.PlayerData.skills[skill].xp + xp
-        
-        -- Level up calculation (1000 XP per level)
-        local xpRequired = self.PlayerData.skills[skill].level * 1000
-        
-        if self.PlayerData.skills[skill].xp >= xpRequired and self.PlayerData.skills[skill].level < Config.Skills.MaxLevel then
-            self.PlayerData.skills[skill].level = self.PlayerData.skills[skill].level + 1
-            self.PlayerData.skills[skill].xp = 0
-            
-            VCore.Functions.Notify(src, 'Skill Level Up! ' .. Config.Skills.Types[skill].label .. ' is now level ' .. self.PlayerData.skills[skill].level, 'success')
-            TriggerEvent('vCore:Server:SkillLevelUp', src, skill, self.PlayerData.skills[skill].level)
-        end
-        
-        self.Functions.UpdatePlayerData()
-        return true
-    end
-    
-    self.Functions.GetSkillLevel = function(skill)
-        if not self.PlayerData.skills[skill] then return 0 end
-        return self.PlayerData.skills[skill].level
-    end
-    
-    -- ═══ REPUTATION SYSTEM ═══
-    self.Functions.AddReputation = function(faction, amount)
-        if not self.PlayerData.reputation[faction] then return false end
-        
-        local factionData = Config.Reputation.Factions[faction]
-        self.PlayerData.reputation[faction] = VCore.Shared.Math.Clamp(
-            self.PlayerData.reputation[faction] + amount,
-            factionData.min,
-            factionData.max
-        )
-        
-        self.Functions.UpdatePlayerData()
-        return true
-    end
-    
-    self.Functions.GetReputation = function(faction)
-        return self.PlayerData.reputation[faction] or 0
-    end
-    
-    -- ═══ STATUS MANAGEMENT ═══
-    self.Functions.SetStatus = function(status, value)
-        if not self.PlayerData.status[status] then return false end
-        
-        self.PlayerData.status[status] = VCore.Shared.Math.Clamp(value, 0, 100)
-        self.Functions.UpdatePlayerData()
-        return true
-    end
-    
-    self.Functions.GetStatus = function(status)
-        return self.PlayerData.status[status] or 0
-    end
-    
-    -- ═══ INVENTORY MANAGEMENT (Placeholder) ═══
-    self.Functions.AddItem = function(item, amount, slot, metadata)
-        -- Integration with your inventory system
-        return true
-    end
-    
-    self.Functions.RemoveItem = function(item, amount, slot)
-        -- Integration with your inventory system
-        return true
-    end
-    
-    self.Functions.GetItem = function(item)
-        -- Integration with your inventory system
-        return nil
-    end
-    
-    self.Functions.GetItemBySlot = function(slot)
-        -- Integration with your inventory system
-        return nil
-    end
-    
-    self.Functions.GetWeight = function()
-        return 0 -- Calculate from inventory
-    end
-    
-    self.Functions.CanCarryItem = function(item, amount)
-        return true -- Check weight
-    end
-    
-    -- ═══ SAVE/LOAD ═══
-    self.Functions.Save = function()
-        MySQL.update('UPDATE players SET currencies = ?, identity = ?, profession = ?, organization = ?, skills = ?, reputation = ?, status = ?, position = ?, metadata = ?, playtime = ? WHERE citizenid = ?', {
-            json.encode(self.PlayerData.currencies),
-            json.encode({
-                firstName = self.PlayerData.firstName,
-                lastName = self.PlayerData.lastName,
-                dob = self.PlayerData.dob,
-                sex = self.PlayerData.sex,
-                nationality = self.PlayerData.nationality,
-                height = self.PlayerData.height,
-                phone = self.PlayerData.phone,
-            }),
-            json.encode(self.PlayerData.profession),
-            json.encode(self.PlayerData.organization),
-            json.encode(self.PlayerData.skills),
-            json.encode(self.PlayerData.reputation),
-            json.encode(self.PlayerData.status),
-            json.encode(self.PlayerData.position),
-            json.encode({
-                bloodType = self.PlayerData.bloodType,
-                fingerprint = self.PlayerData.fingerprint,
-                walletId = self.PlayerData.walletId,
-                callsign = self.PlayerData.callsign,
-                licenses = self.PlayerData.licenses,
-            }),
-            self.PlayerData.playTime,
-            self.PlayerData.citizenid
+    Player.Functions.Save = function()
+        MySQL.update('UPDATE players SET money = ?, charinfo = ?, job = ?, gang = ?, position = ?, metadata = ? WHERE citizenid = ?', {
+            json.encode(Player.PlayerData.money),
+            json.encode(Player.PlayerData.charinfo),
+            json.encode(Player.PlayerData.job),
+            json.encode(Player.PlayerData.gang),
+            json.encode(Player.PlayerData.position),
+            json.encode(Player.PlayerData.metadata),
+            Player.PlayerData.citizenid
         })
         
-        self.PlayerData.lastSave = os.time()
-        VCore.Debug('Player saved:', self.PlayerData.firstName, self.PlayerData.lastName)
+        VCore.Debug('Saved player:', Player.PlayerData.name, '(' .. Player.PlayerData.citizenid .. ')')
     end
     
-    self.Functions.Logout = function()
-        self.Functions.Save()
+    Player.Functions.Logout = function()
+        VCore.Player_Buckets[Player.PlayerData.source] = nil
         VCore.Players[src] = nil
-        VCore.PlayerCount = VCore.PlayerCount - 1
     end
     
-    -- Add player to active players
-    VCore.Players[src] = self
-    VCore.PlayerCount = VCore.PlayerCount + 1
+    Player.Functions.AddMethod = function(methodName, method)
+        Player.Functions[methodName] = method
+    end
     
-    return self
+    VCore.Players[src] = Player
+    
+    Player.Functions.UpdatePlayerData()
+    
+    return Player
 end
 
--- ════════════════════════════════════════════════════════
--- HELPER FUNCTIONS
--- ════════════════════════════════════════════════════════
+VCore.Player = {}
 
-VCore.Functions.GetPlayer = function(source)
-    if type(source) == 'number' then
-        return VCore.Players[source]
-    else
-        return VCore.Players[VCore.Functions.GetSource(source)]
+VCore.Player.Login = function(source, citizenid, newData)
+    local src = source
+    local license = VCore.Functions.GetIdentifier(src, 'license')
+    
+    if not citizenid then
+        return false
     end
+    
+    local PlayerData = MySQL.query.await('SELECT * FROM players WHERE citizenid = ?', {citizenid})
+    
+    if not PlayerData[1] then
+        return false
+    end
+    
+    local Player = VCore.Functions.CreatePlayer(src, citizenid)
+    
+    Player.PlayerData.money = json.decode(PlayerData[1].money) or {}
+    Player.PlayerData.charinfo = json.decode(PlayerData[1].charinfo) or {}
+    Player.PlayerData.job = json.decode(PlayerData[1].job) or {}
+    Player.PlayerData.gang = json.decode(PlayerData[1].gang) or {}
+    Player.PlayerData.position = json.decode(PlayerData[1].position) or Config.DefaultSpawn
+    Player.PlayerData.metadata = json.decode(PlayerData[1].metadata) or {}
+    Player.PlayerData.cid = PlayerData[1].cid
+    
+    Player.Functions.UpdatePlayerData()
+    
+    return true
 end
 
-VCore.Functions.GetPlayerByCitizenId = function(citizenid)
-    for src, player in pairs(VCore.Players) do
-        if player.PlayerData.citizenid == citizenid then
-            return player
+VCore.Player.CreateCitizenId = function()
+    local UniqueFound = false
+    local CitizenId
+    
+    while not UniqueFound do
+        CitizenId = tostring(VCore.Shared.RandomStr(3) .. VCore.Shared.RandomInt(5)):upper()
+        local result = MySQL.scalar.await('SELECT COUNT(*) FROM players WHERE citizenid = ?', {CitizenId})
+        if result == 0 then
+            UniqueFound = true
         end
     end
-    return nil
+    
+    return CitizenId
 end
 
-VCore.Functions.GetPlayers = function()
-    local sources = {}
-    for k in pairs(VCore.Players) do
-        sources[#sources + 1] = k
-    end
-    return sources
-end
-
-VCore.Functions.GetSource = function(identifier)
-    for src, player in pairs(VCore.Players) do
-        if player.PlayerData.identifier == identifier or
-           player.PlayerData.citizenid == identifier or
-           player.PlayerData.steam == identifier or
-           player.PlayerData.discord == identifier then
-            return src
+VCore.Player.CreateFingerId = function()
+    local UniqueFound = false
+    local FingerId
+    
+    while not UniqueFound do
+        FingerId = tostring(VCore.Shared.RandomStr(2) .. VCore.Shared.RandomInt(3) .. VCore.Shared.RandomStr(1) .. VCore.Shared.RandomInt(2) .. VCore.Shared.RandomStr(3) .. VCore.Shared.RandomInt(4))
+        local result = MySQL.scalar.await('SELECT COUNT(*) FROM players WHERE JSON_EXTRACT(metadata, "$.fingerprint") = ?', {FingerId})
+        if result == 0 then
+            UniqueFound = true
         end
     end
-    return 0
+    
+    return FingerId
+end
+
+VCore.Player.CreateWalletId = function()
+    local UniqueFound = false
+    local WalletId
+    
+    while not UniqueFound do
+        WalletId = 'VC-' .. math.random(11111111, 99999999)
+        local result = MySQL.scalar.await('SELECT COUNT(*) FROM players WHERE JSON_EXTRACT(metadata, "$.walletid") = ?', {WalletId})
+        if result == 0 then
+            UniqueFound = true
+        end
+    end
+    
+    return WalletId
+end
+
+VCore.Player.CreateSerialNumber = function()
+    local UniqueFound = false
+    local SerialNumber
+    
+    while not UniqueFound do
+        SerialNumber = math.random(11111111, 99999999)
+        local result = MySQL.scalar.await('SELECT COUNT(*) FROM players WHERE JSON_EXTRACT(metadata, "$.phonedata.SerialNumber") = ?', {SerialNumber})
+        if result == 0 then
+            UniqueFound = true
+        end
+    end
+    
+    return SerialNumber
 end
 
 VCore.Functions.GetIdentifier = function(source, idtype)
@@ -430,4 +330,8 @@ VCore.Functions.GetIdentifier = function(source, idtype)
     return nil
 end
 
-print('^2[vCore]^7 Player System Loaded')
+VCore.Functions.GetCoords = function(entity)
+    local coords = GetEntityCoords(entity, false)
+    local heading = GetEntityHeading(entity)
+    return vector4(coords.x, coords.y, coords.z, heading)
+end
