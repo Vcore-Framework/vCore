@@ -1,10 +1,10 @@
-# vCore Framework v1.0
+# vCore Framework
 
 A **next-generation** FiveM framework with a unique architecture and multi-framework bridge system. Unlike QBCore, ESX, or OX, vCore introduces innovative systems while maintaining compatibility with existing resources through built-in bridges.
 
 ---
 
-## 🌟 What Makes vCore Different?
+## What Makes vCore Different?
 
 ### Unique Features Not Found in Other Frameworks:
 
@@ -19,14 +19,14 @@ A **next-generation** FiveM framework with a unique architecture and multi-frame
 
 ---
 
-## 🔌 Framework Bridge System
+## Framework Bridge System
 
 vCore includes **built-in compatibility layers** that allow resources from other frameworks to work seamlessly:
 
 ### Supported Bridges:
-- ✅ **QBCore** - Full compatibility with QB resources
-- ✅ **ESX** - Full compatibility with ESX resources  
-- ✅ **OX** - Partial compatibility with OX resources
+- **QBCore** - Full compatibility with QB resources
+- **ESX** - Full compatibility with ESX resources  
+- **OX** - Partial compatibility with OX resources
 
 ### How It Works:
 1. vCore automatically detects which framework a resource expects
@@ -82,7 +82,7 @@ VCore = exports['vcore']:GetCoreObject() -- Works!
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ### vCore Unique Data Structure
 
@@ -160,7 +160,7 @@ Player = {
 
 ---
 
-## 💻 Usage Examples
+## Usage Examples
 
 ### vCore Native API
 
@@ -250,7 +250,7 @@ xPlayer.setJob('police', 0) -- Maps to vCore profession
 
 ---
 
-## 🎮 Commands
+## Commands
 
 ### Admin Commands
 - `/setprofession [id] [profession] [level]` - Set player profession
@@ -271,7 +271,7 @@ xPlayer.setJob('police', 0) -- Maps to vCore profession
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Enable/Disable Bridge
 
@@ -345,7 +345,7 @@ Config.Skills = {
 
 ---
 
-## 🔧 Module System
+## Module System
 
 vCore uses a unique module system for extensibility:
 
@@ -385,7 +385,7 @@ myModule.DoSomething()
 
 ---
 
-## 📊 Performance
+## Performance
 
 vCore is optimized for performance:
 - **0.01ms** - Average player tick
@@ -396,7 +396,7 @@ vCore is optimized for performance:
 
 ---
 
-## 🔐 Security Features
+## Security Features
 
 - **SQL Injection Protection** - Using parameterized queries
 - **License Verification** - Multiple identifier checks
@@ -406,7 +406,7 @@ vCore is optimized for performance:
 
 ---
 
-## 🎓 Migration Guide
+## Migration Guide
 
 ### From QBCore to vCore
 
@@ -436,11 +436,11 @@ We welcome contributions! Please:
 
 ## 📝 License
 
-GPL-3.0 License - Open source and free to use
+GPL-2.0 License - Open source and free to use
 
 ---
 
-## 🆘 Support
+## Support
 
 - **Documentation**: [Coming Soon]
 - **Discord**: [Coming Soon]
@@ -449,7 +449,7 @@ GPL-3.0 License - Open source and free to use
 
 ---
 
-## 🙏 Credits
+## Credits
 
 - **ox_lib** - Overextended
 - **oxmysql** - Overextended
@@ -458,18 +458,16 @@ GPL-3.0 License - Open source and free to use
 
 ---
 
-## 📌 Version
-
-**Current Version**: 1.0
+## Version
 
 **Changelog**:
-- ✨ Complete framework rewrite
-- ✨ Multi-framework bridge system
-- ✨ Profession system with multiple professions
-- ✨ Organization system
-- ✨ Skills & Reputation systems
-- ✨ Multi-currency wallet
-- ✨ Module-based architecture
-- ✨ Full QB/ESX compatibility
+- Complete framework rewrite
+- Multi-framework bridge system
+- Profession system with multiple professions
+- Organization system
+- Skills & Reputation systems
+- Multi-currency wallet
+- Module-based architecture
+- Full QB/ESX compatibility
 
 ---
