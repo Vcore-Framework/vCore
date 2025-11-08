@@ -1,0 +1,335 @@
+# ╔════════════════════════════════════════════════════════╗
+# ║  vCore Framework - GitHub Actions CI/CD Pipeline      ║
+# ║  Automated Testing, Building, and Release Management  ║
+# ╚════════════════════════════════════════════════════════╝
+
+name: vCore CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  FRAMEWORK_NAME: vCore
+  FRAMEWORK_VERSION: 2.0.0
+
+jobs:
+  # ════════════════════════════════════════════════════════
+  # LINT AND CODE QUALITY
+  # ════════════════════════════════════════════════════════
+  lint:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Lua
+        uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.4"
+
+      - name: Setup LuaRocks
+        uses: leafo/gh-actions-luarocks@v4
+
+      - name: Install luacheck
+        run: luarocks install luacheck
+
+      - name: Run luacheck
+        run: luacheck . --exclude-files .install/* --globals VCore Config MySQL lib exports
+
+      - name: Check file encoding
+        run: |
+          find . -name "*.lua" -exec file {} \; | grep -v "UTF-8" && exit 1 || exit 0
+
+      - name: Check line endings
+        run: |
+          find . -name "*.lua" -exec file {} \; | grep -i "CRLF" && exit 1 || exit 0
+
+  # ════════════════════════════════════════════════════════
+  # SECURITY SCAN
+  # ════════════════════════════════════════════════════════
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # ════════════════════════════════════════════════════════
+  # DOCUMENTATION
+  # ════════════════════════════════════════════════════════
+  docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          npm install -g markdownlint-cli
+
+      - name: Lint markdown files
+        run: markdownlint '**/*.md' --ignore node_modules
+
+      - name: Check for broken links
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: 'yes'
+
+  # ════════════════════════════════════════════════════════
+  # BUILD AND PACKAGE
+  # ════════════════════════════════════════════════════════
+  build:
+    name: Build and Package
+    runs-on: ubuntu-latest
+    needs: [lint, security]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="${FRAMEWORK_VERSION}-dev-${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Update version in files
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          sed -i "s/Version = '[^']*'/Version = '$VERSION'/" shared/main.lua
+          sed -i "s/version '[^']*'/version '$VERSION'/" fxmanifest.lua
+
+      - name: Create build directory
+        run: |
+          mkdir -p build/vcore
+          
+      - name: Copy files to build
+        run: |
+          rsync -av --progress . build/vcore \
+            --exclude .git \
+            --exclude .github \
+            --exclude tests \
+            --exclude .gitignore \
+            --exclude .editorconfig \
+            --exclude build
+
+      - name: Create release archive
+        run: |
+          cd build
+          zip -r vcore-${{ steps.version.outputs.version }}.zip vcore/
+          tar -czf vcore-${{ steps.version.outputs.version }}.tar.gz vcore/
+
+      - name: Generate checksums
+        run: |
+          cd build
+          sha256sum vcore-${{ steps.version.outputs.version }}.zip > checksums.txt
+          sha256sum vcore-${{ steps.version.outputs.version }}.tar.gz >> checksums.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: vcore-build-${{ steps.version.outputs.version }}
+          path: |
+            build/vcore-*.zip
+            build/vcore-*.tar.gz
+            build/checksums.txt
+
+  # ════════════════════════════════════════════════════════
+  # RELEASE
+  # ════════════════════════════════════════════════════════
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build, docs]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: vcore-build-${{ needs.build.outputs.version }}
+          path: ./artifacts
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          PREVIOUS_TAG=$(git describe --abbrev=0 --tags $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGELOG=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: vCore Framework v${{ steps.version.outputs.version }}
+          body: |
+            # vCore Framework Release v${{ steps.version.outputs.version }}
+            
+            ## 🎉 What's New
+            
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ## 📦 Installation
+            
+            1. Download the archive below
+            2. Extract to your FiveM resources folder
+            3. Add `ensure vcore` to your server.cfg
+            4. Import the SQL file from the `sql/` directory
+            5. Configure `config.lua` to your needs
+            
+            ## 📚 Documentation
+            
+            - [API Documentation](https://github.com/${{ github.repository }}/blob/main/docs/API.md)
+            - [Installation Guide](https://github.com/${{ github.repository }}/blob/main/docs/INSTALLATION.md)
+            - [Migration Guide](https://github.com/${{ github.repository }}/blob/main/docs/MIGRATION.md)
+            
+            ## ✅ Checksums
+            
+            ```
+            $(cat artifacts/checksums.txt)
+            ```
+            
+            ## 🐛 Known Issues
+            
+            See [Issues](https://github.com/${{ github.repository }}/issues) for current known issues.
+            
+            ## 💬 Support
+            
+            - Discord: [Join our community](#)
+            - Documentation: [docs.vcore.dev](#)
+            - Issues: [GitHub Issues](https://github.com/${{ github.repository }}/issues)
+          files: |
+            artifacts/vcore-*.zip
+            artifacts/vcore-*.tar.gz
+            artifacts/checksums.txt
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ════════════════════════════════════════════════════════
+  # DEPLOY DOCUMENTATION
+  # ════════════════════════════════════════════════════════
+  deploy-docs:
+    name: Deploy Documentation
+    runs-on: ubuntu-latest
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Build documentation
+        run: |
+          # Add documentation build steps here
+          echo "Building documentation..."
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+
+  # ════════════════════════════════════════════════════════
+  # NOTIFY
+  # ════════════════════════════════════════════════════════
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [release]
+    if: always() && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Discord Webhook Notification
+        uses: tsickert/discord-webhook@v5.3.0
+        with:
+          webhook-url: ${{ secrets.DISCORD_WEBHOOK }}
+          content: |
+            🎉 **vCore Framework v${{ needs.build.outputs.version }} Released!**
+            
+            📦 Download: https://github.com/${{ github.repository }}/releases/latest
+            📚 Documentation: https://docs.vcore.dev
+            💬 Discord: [Join our community](#)
+            
+            Status: ${{ needs.release.result }}
+
+  # ════════════════════════════════════════════════════════
+  # DOCKER BUILD (Optional)
+  # ════════════════════════════════════════════════════════
+  docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            vcore/framework:latest
+            vcore/framework:${{ steps.version.outputs.version }}
+          cache-from: type=registry,ref=vcore/framework:buildcache
+          cache-to: type=registry,ref=vcore/framework:buildcache,mode=max
